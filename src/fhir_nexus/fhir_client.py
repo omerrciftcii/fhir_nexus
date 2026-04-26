@@ -1,48 +1,75 @@
-"""OpenEMR FHIR API ile HTTP iletişimi."""
-
-from __future__ import annotations
-
 import os
-from typing import Any
-
-import httpx
+import requests
 from dotenv import load_dotenv
 
+# Load environment variables from the .env file
 load_dotenv()
 
+class FHIRClient:
+    """
+    Enterprise-grade HTTP client for secure communication with OpenEMR FHIR API.
+    Handles OAuth2 Bearer token retrieval and authenticated requests.
+    """
+    
+    def __init__(self):
+        self.base_url = os.getenv("OPENEMR_FHIR_BASE_URL")
+        self.token_url = os.getenv("OPENEMR_TOKEN_URL")
+        self.client_id = os.getenv("OPENEMR_CLIENT_ID")
+        self.client_secret = os.getenv("OPENEMR_CLIENT_SECRET")
+        self.access_token = None
 
-class FhirClientError(Exception):
-    """FHIR isteği başarısız veya beklenmeyen yanıt."""
+    def authenticate(self) -> bool:
+        """
+        Retrieves the OAuth2 Bearer token using client credentials.
+        """
+        if not all([self.token_url, self.client_id, self.client_secret]):
+            print("Error: Missing authentication credentials in the .env file.")
+            return False
 
+        payload = {
+            "grant_type": "client_credentials",
+            "client_id": self.client_id,
+            "client_secret": self.client_secret
+        }
 
-class FhirClient:
-    """OpenEMR (veya uyumlu) FHIR sunucusuna yönelik ince HTTP sarmalayıcı."""
+        try:
+            # Set timeout to prevent hanging connections
+            response = requests.post(self.token_url, data=payload, timeout=10)
+            response.raise_for_status()
+            
+            token_data = response.json()
+            self.access_token = token_data.get("access_token")
+            
+            print("Successfully authenticated with OpenEMR FHIR API.")
+            return True
+            
+        except requests.exceptions.RequestException as error:
+            print(f"Authentication failed: {error}")
+            return False
 
-    def __init__(
-        self,
-        base_url: str | None = None,
-        access_token: str | None = None,
-        timeout: float = 30.0,
-    ) -> None:
-        self._base_url = (base_url or os.getenv("OPENEMR_BASE_URL", "")).rstrip("/")
-        self._token = access_token or os.getenv("OPENEMR_ACCESS_TOKEN", "")
-        self._timeout = timeout
+    def get_resource(self, resource_type: str, params: dict = None) -> dict:
+        """
+        Fetches a specific FHIR resource from the server.
+        """
+        if not self.access_token:
+            print("Warning: No access token found. Attempting to authenticate...")
+            if not self.authenticate():
+                return {}
 
-    def _headers(self) -> dict[str, str]:
-        h = {"Accept": "application/fhir+json", "Content-Type": "application/fhir+json"}
-        if self._token:
-            h["Authorization"] = f"Bearer {self._token}"
-        return h
-
-    def _url(self, path: str) -> str:
-        path = path.lstrip("/")
-        if not self._base_url:
-            raise FhirClientError("OPENEMR_BASE_URL tanımlı değil.")
-        return f"{self._base_url}/{path}"
-
-    async def get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            r = await client.get(self._url(path), headers=self._headers(), params=params)
-        if r.status_code >= 400:
-            raise FhirClientError(f"GET {path} -> {r.status_code}: {r.text[:500]}")
-        return r.json()
+        headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Accept": "application/fhir+json"
+        }
+        
+        endpoint = f"{self.base_url}/{resource_type}"
+        
+        try:
+            response = requests.get(endpoint, headers=headers, params=params, timeout=15)
+            response.raise_for_status()
+            
+            print(f"Successfully retrieved {resource_type} data.")
+            return response.json()
+            
+        except requests.exceptions.RequestException as error:
+            print(f"Error fetching FHIR resource '{resource_type}': {error}")
+            return {}
