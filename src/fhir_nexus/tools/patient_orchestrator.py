@@ -1,37 +1,54 @@
-"""Hasta demografisi ve özet FHIR kaynakları."""
+from typing import Dict, Any
+from fhir_nexus.fhir_client import FHIRClient
 
-from __future__ import annotations
+class PatientDataIngestion:
+    """
+    Enterprise-grade engine to ingest and aggregate FHIR resources for a specific patient.
+    """
+    
+    def __init__(self, client: FHIRClient):
+        self.client = client
 
-from typing import Any
+    def get_patient_demographics(self, patient_id: str) -> Dict[str, Any]:
+        """
+        Fetches patient demographic data.
+        """
+        print(f"Fetching demographics for patient: {patient_id}")
+        return self.client.get_resource(f"Patient/{patient_id}")
 
-from fastmcp import FastMCP
+    def get_patient_conditions(self, patient_id: str) -> Dict[str, Any]:
+        """
+        Fetches active conditions/problems for the patient.
+        """
+        print(f"Fetching active conditions for patient: {patient_id}")
+        params = {"subject": f"Patient/{patient_id}", "clinical-status": "active"}
+        return self.client.get_resource("Condition", params=params)
 
-from fhir_nexus.fhir_client import FhirClient, FhirClientError
-from fhir_nexus.utils.data_cleaner import compact_fhir_dict
+    def get_patient_medications(self, patient_id: str) -> Dict[str, Any]:
+        """
+        Fetches active medication requests for the patient.
+        """
+        print(f"Fetching active medications for patient: {patient_id}")
+        params = {"subject": f"Patient/{patient_id}", "status": "active"}
+        return self.client.get_resource("MedicationRequest", params=params)
 
+    def get_patient_observations(self, patient_id: str) -> Dict[str, Any]:
+        """
+        Fetches laboratory results and vitals for the patient.
+        """
+        print(f"Fetching observations for patient: {patient_id}")
+        params = {"subject": f"Patient/{patient_id}"}
+        return self.client.get_resource("Observation", params=params)
 
-def register(mcp: FastMCP) -> None:
-    @mcp.tool()
-    async def patient_demographics(patient_id: str) -> dict[str, Any]:
-        """OpenEMR'den Patient kaynağını ID ile getirir (sadeleştirilmiş JSON)."""
-        client = FhirClient()
-        try:
-            resource = await client.get(f"Patient/{patient_id}")
-        except FhirClientError as e:
-            return {"ok": False, "error": str(e)}
-        return {"ok": True, "patient": compact_fhir_dict(resource)}
-
-    @mcp.tool()
-    async def patient_search(family: str | None = None, given: str | None = None) -> dict[str, Any]:
-        """İsim ile Patient araması (family, given opsiyonel)."""
-        client = FhirClient()
-        params: dict[str, str] = {}
-        if family:
-            params["family"] = family
-        if given:
-            params["given"] = given
-        try:
-            bundle = await client.get("Patient", params=params or None)
-        except FhirClientError as e:
-            return {"ok": False, "error": str(e)}
-        return {"ok": True, "bundle": compact_fhir_dict(bundle)}
+    def aggregate_patient_record(self, patient_id: str) -> Dict[str, Any]:
+        """
+        Aggregates all relevant FHIR resources into a single structured clinical record.
+        """
+        print(f"Aggregating full clinical record for patient: {patient_id}")
+        
+        return {
+            "demographics": self.get_patient_demographics(patient_id),
+            "conditions": self.get_patient_conditions(patient_id),
+            "medications": self.get_patient_medications(patient_id),
+            "observations": self.get_patient_observations(patient_id)
+        }
